@@ -1,39 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net"
+
+	"github.com/mdjOoy/tcptohttp/internal/request"
 )
-
-func getLinesChannel(f io.ReadCloser) <-chan string {
-	out := make(chan string, 1)
-	go func() {
-		defer f.Close()
-		defer close(out)
-
-		str := ""
-		for {
-			data := make([]byte, 8)
-			n, err := f.Read(data)
-			if err != nil {
-				break
-			}
-			data = data[:n]
-
-			if i := bytes.IndexByte(data, '\n'); i != -1 {
-				str += string(data[:i])
-				data = data[i+1:]
-				out <- str
-				str = ""
-			}
-			str += string(data)
-		}
-	}()
-	return out
-}
 
 func main() {
 	listener, err := net.Listen("tcp", ":8080")
@@ -45,8 +18,13 @@ func main() {
 		if err != nil {
 			log.Fatal("error", err)
 		}
-		for line := range getLinesChannel(conn) {
-			fmt.Printf("%s\n", line)
+		r, err := request.RequestFromReader(conn)
+		if err != nil {
+			log.Fatal("error", err)
 		}
+		fmt.Printf("Request line:\n")
+		fmt.Printf("- Method: %s\n", r.RequestLine.Method)
+		fmt.Printf("- Target: %s\n", r.RequestLine.RequestTarget)
+		fmt.Printf("- Version: %s\n", r.RequestLine.HttpVersion)
 	}
 }
