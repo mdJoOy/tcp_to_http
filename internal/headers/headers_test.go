@@ -25,4 +25,11 @@ func TestHeaderParse(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 0, n)
 	assert.False(t, done)
+
+	headers = NewHeaders()
+	data = []byte("Host: localhost:42069\r\nHost: localhost:42069\r\n")
+	n, done, err = headers.Parse(data)
+	assert.Equal(t, "localhost:42069,localhost:42069", headers.Get("HOST"))
+	require.NoError(t, err)
+	assert.False(t, done)
 }
