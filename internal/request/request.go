@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/mdjOoy/tcptohttp/internal/headers"
 )
 
 type parseState string
 
 const (
-	StateInit  parseState = "init"
-	StateDone  parseState = "done"
-	StateError parseState = "error"
+	StateInit    parseState = "init"
+	StateHeaders parseState = "headers"
+	StateDone    parseState = "done"
+	StateError   parseState = "error"
 )
 
 type RequestLine struct {
@@ -22,12 +25,14 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     *headers.Headers
 	State       parseState
 }
 
 func newRequest() *Request {
 	return &Request{
-		State: StateInit,
+		State:   StateInit,
+		Headers: headers.NewHeaders(),
 	}
 }
 
@@ -67,11 +72,13 @@ func (r *Request) parse(data []byte) (int, error) {
 	read := 0
 outer:
 	for {
+		currentData := data[read:]
+
 		switch r.State {
 		case StateError:
 			return 0, ErrorRequestInErrorState
 		case StateInit:
-			rl, n, err := parseRequestLine(data[read:])
+			rl, n, err := parseRequestLine(currentData)
 			if err != nil {
 				return 0, err
 			}
@@ -80,9 +87,24 @@ outer:
 			}
 			r.RequestLine = *rl
 			read += n
-			r.State = StateDone
+			r.State = StateHeaders
+		case StateHeaders:
+			n, done, err := r.Headers.Parse(currentData)
+			if err != nil {
+				return 0, err
+			}
+			if n == 0 {
+				break outer
+			}
+			read += n
+
+			if done {
+				r.State = StateDone
+			}
 		case StateDone:
 			break outer
+		default:
+			panic("somehow we have programmed poorly")
 		}
 	}
 	return read, nil
