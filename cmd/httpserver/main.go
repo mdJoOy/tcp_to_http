@@ -1,12 +1,16 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/mdjOoy/tcptohttp/internal/headers"
 	"github.com/mdjOoy/tcptohttp/internal/request"
 	"github.com/mdjOoy/tcptohttp/internal/response"
 	"github.com/mdjOoy/tcptohttp/internal/server"
@@ -14,6 +18,13 @@ import (
 
 const port = 42069
 
+func toStr(sha []byte) string {
+	out := ""
+	for _, v := range sha {
+		out += fmt.Sprintf("%02x", v)
+	}
+	return out
+}
 func respond400() []byte {
 	return []byte(`<html>
   <head>
@@ -62,6 +73,45 @@ func main() {
 		} else if req.RequestLine.RequestTarget == "/myproblem" {
 			statusCode = response.StatusInternalServerError
 			body = respond500()
+		} else if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin") {
+			target := req.RequestLine.RequestTarget
+			//sending req to the original server
+			res, err := http.Get("https://httpbin.org/" + strings.TrimPrefix(target, "/httpbin/"))
+			if err != nil {
+				statusCode = response.StatusBadRequest
+				body = respond400()
+			}
+			//fixing headers so that it supports chunk encoding
+			h.Delete("Content-Length")
+			h.Set("Transfer-Encoding", "chunked")
+			h.Replace("Content-Type", "text/plain")
+			h.Set("Trailer", "X-Content-SHA256")
+			h.Set("Trailer", "X-Content-Length")
+			//writing status line
+			w.WriteStatusLine(statusCode)
+			//writing headers
+			w.WriteHeaders(h)
+			//writing chunk body
+			data := make([]byte, 1024)
+			fullBody := []byte{}
+			for {
+				n, err := res.Body.Read(data[0:])
+				if err != nil {
+					break
+				}
+				fullBody = append(fullBody, data[:n]...)
+				w.WriteBody([]byte(fmt.Sprintf("%x\r\n", n)))
+				w.WriteBody(data[:n])
+				w.WriteBody([]byte("\r\n"))
+			}
+			sha := sha256.Sum256(fullBody)
+			w.WriteBody([]byte("0\r\n"))
+			trailers := headers.NewHeaders()
+			trailers.Set("X-Content-SHA256", toStr(sha[:]))
+			trailers.Set("X-Content-Length", fmt.Sprintf("%d", len(fullBody)))
+			trailers.Set("testing", "demo")
+			w.WriteHeaders(trailers)
+			return
 		}
 		w.WriteStatusLine(statusCode)
 		h.Replace("Content-Length", fmt.Sprintf("%d", len(body)))

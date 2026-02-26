@@ -13,10 +13,6 @@ type Server struct {
 	closed  bool
 	handler Handler
 }
-type HandlerError struct {
-	StatusCode response.StatusCode
-	Message    string
-}
 type Handler func(w *response.Writer, req *request.Request)
 
 func runConnection(s *Server, conn io.ReadWriteCloser) {
